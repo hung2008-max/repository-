@@ -1,0 +1,366 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Flappy Kiều Tuấn Hùng - Full</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@700&display=swap');
+:root{
+  --bg1:#70c5ce; --bg2:#9be3e0; --btn:#ff7b7b;
+}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0;font-family:'Inter',Arial,sans-serif;background:linear-gradient(180deg,var(--bg1) 0%, var(--bg2) 100%);overflow:hidden}
+#game-container{
+  width:420px;height:640px;margin:24px auto;position:relative;border-radius:12px;
+  box-shadow:0 18px 40px rgba(0,0,0,0.18);overflow:hidden;background:linear-gradient(180deg,#70c5ce 0%, #9be3e0 100%);
+}
+canvas#game{display:block;width:100%;height:100%;background:transparent;cursor:pointer;border-radius:12px}
+#start-screen{
+  position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;
+  z-index:30;color:white;text-align:center;padding:20px;
+  background:linear-gradient(180deg, rgba(255,255,255,0.03), rgba(255,255,255,0.01));
+}
+.title{
+  font-size:40px;font-weight:800;letter-spacing:1px;margin-bottom:10px;
+  text-shadow:0 6px 18px rgba(0,0,0,0.25);
+}
+.subtitle{font-size:14px;opacity:0.95;margin-bottom:18px}
+.btn{background:var(--btn);border:none;border-radius:12px;padding:12px 26px;color:white;font-weight:800;cursor:pointer;box-shadow:0 8px 18px rgba(255,123,123,0.35);font-size:18px}
+.btn:hover{transform:translateY(-2px)}
+.hud{position:absolute;left:14px;top:10px;color:#fff;font-weight:700;text-shadow:0 0 6px rgba(0,0,0,0.6);z-index:40}
+#floating-text{position:absolute;left:50%;transform:translateX(-50%);bottom:20px;font-size:32px;font-weight:800;color:#ffd700;text-shadow:2px 2px 6px rgba(0,0,0,0.6);z-index:35;opacity:0}
+#game-over{position:absolute;inset:0;background:rgba(0,0,0,0.45);display:flex;align-items:center;justify-content:center;flex-direction:column;color:white;font-weight:800;font-size:28px;z-index:80;visibility:hidden;opacity:0;transition:opacity .25s}
+#game-over.visible{visibility:visible;opacity:1}
+#game-over .btn{margin-top:16px}
+#rainbow-banner{position:absolute;top:36px;left:100%;white-space:nowrap;font-weight:800;z-index:45;font-size:20px;pointer-events:none;}
+.cloud-decor{position:absolute;inset:auto 0 0 0;height:140px;pointer-events:none;z-index:10}
+</style>
+</head>
+<body>
+<div id="game-container" role="application" aria-label="Flappy Kieu Tuan Hung">
+  <canvas id="game" width="420" height="640" aria-label="game canvas"></canvas>
+
+  <div id="start-screen" role="dialog" aria-modal="true">
+    <div class="title" id="start-title">K I E U &nbsp;&nbsp; T U A N &nbsp;&nbsp; H U N G</div>
+    <div class="subtitle">KIEU TUAN HUNG DZ SO 1 THE GIOI — CHUC BAN CHOI GAME VUI VE</div>
+    <button id="btn-play" class="btn" aria-label="Play">PLAY</button>
+    <div style="margin-top:12px;font-size:13px;opacity:0.9">Nhấn SPACE hoặc click để nhảy</div>
+  </div>
+
+  <div id="rainbow-banner" aria-hidden="true"></div>
+  <div id="floating-text" aria-hidden="true">KIEU TUAN HUNG</div>
+  <div class="hud" id="hud">Score: 0 | Level: 1</div>
+
+  <div id="game-over" role="alertdialog" aria-hidden="true">
+    <div id="go-title">Game Over</div>
+    <div id="final-score" style="margin-top:8px"></div>
+    <button id="restart-btn" class="btn">Chơi lại</button>
+  </div>
+
+  <!-- decorative clouds (CSS only shapes) -->
+  <div class="cloud-decor" aria-hidden="true"></div>
+  <!-- audio -->
+  <audio id="bg-music" src="nhac.mp3" loop preload="auto"></audio>
+</div>
+
+<script>
+(() => {
+  // elements
+  const canvas = document.getElementById('game');
+  const ctx = canvas.getContext('2d');
+  const W = canvas.width, H = canvas.height;
+  const btnPlay = document.getElementById('btn-play');
+  const startScreen = document.getElementById('start-screen');
+  const hud = document.getElementById('hud');
+  const go = document.getElementById('game-over');
+  const finalScore = document.getElementById('final-score');
+  const restartBtn = document.getElementById('restart-btn');
+  const floatingText = document.getElementById('floating-text');
+  const rainbowBanner = document.getElementById('rainbow-banner');
+  const bgMusic = document.getElementById('bg-music');
+
+  // game vars
+  let frames = 0, pipes = [], score = 0, passedPipes = 0, level = 1;
+  let gameOver = false, playing = false;
+  const PIPE_W = 64, PIPE_GAP = 150, PIPE_DIST = 190, PIPE_SPEED = 2.2;
+
+  // bird
+  const bird = { x: 80, y: H/2, radius: 14, velocity: 0, gravity: 0.55, jump: -9, rotation: 0 };
+
+  // background (bamboo + far clouds)
+  let bambooList = [], cloudList = [];
+
+  function initBamboo(){
+    bambooList = [];
+    for(let i=0;i<6;i++) bambooList.push({ x: i*85 + Math.random()*40, h: 80 + Math.random()*110, speed: 0.45 + Math.random()*0.25 });
+  }
+  function initClouds(){
+    cloudList = [];
+    for(let i=0;i<5;i++) cloudList.push({ x: Math.random()*W, y: 24 + Math.random()*90, size: 40 + Math.random()*40, speed: 0.12 + Math.random()*0.16 });
+  }
+
+  // fireworks particles
+  let fireworks = [], showCelebration = false, celebrationTimer = 0, CELEBRATION_DURATION = 180;
+
+  function spawnFirework(x,y,count=36){
+    const hue = Math.floor(Math.random()*360);
+    for(let i=0;i<count;i++){
+      const speed = Math.random()*4 + 1.8;
+      const angle = Math.random()*Math.PI*2;
+      fireworks.push({ x, y, vx:Math.cos(angle)*speed, vy:Math.sin(angle)*speed, life:Math.random()*60+40, age:0, hue, r:Math.random()*2+1 });
+    }
+  }
+  function updateFireworks(){
+    for(const f of fireworks){ f.vy += 0.06; f.x += f.vx; f.y += f.vy; f.age++; }
+    fireworks = fireworks.filter(f => f.age < f.life);
+  }
+
+  // spawn pipe
+  function spawnPipe(x){
+    const center = Math.random() * (H - 240 - PIPE_GAP) + 120;
+    return { x, top: center - PIPE_GAP/2 - H, bottom: center + PIPE_GAP/2, passed:false };
+  }
+
+  // HUD update
+  function updateHUD(){ hud.textContent = `Score: ${score} | Level: ${level}`; }
+
+  // collisions
+  function circleRect(cx,cy,r,rx,ry,rw,rh){
+    const nx = Math.max(rx, Math.min(cx, rx+rw));
+    const ny = Math.max(ry, Math.min(cy, ry+rh));
+    const dx = cx-nx, dy = cy-ny;
+    return (dx*dx + dy*dy) < (r*r);
+  }
+
+  // audio setup (small level-up sound via WebAudio)
+  const AudioCtx = window.AudioContext || window.webkitAudioContext;
+  const audioCtx = AudioCtx ? new AudioCtx() : null;
+  function playLevelSound(){
+    if(!audioCtx) return;
+    const now = audioCtx.currentTime;
+    [880,1100,660].forEach((f,i)=>{
+      const o = audioCtx.createOscillator();
+      const g = audioCtx.createGain();
+      o.type = 'sine'; o.frequency.setValueAtTime(f, now + i*0.02);
+      g.gain.setValueAtTime(0, now); g.gain.linearRampToValueAtTime(0.12, now+0.01);
+      g.gain.exponentialRampToValueAtTime(0.001, now+0.6);
+      o.connect(g); g.connect(audioCtx.destination);
+      o.start(now + i*0.02); o.stop(now + 0.6);
+    });
+  }
+  function playFireworkBoom(){
+    if(!audioCtx) return;
+    const now = audioCtx.currentTime;
+    const size = audioCtx.sampleRate * 0.25;
+    const buffer = audioCtx.createBuffer(1, size, audioCtx.sampleRate);
+    const ch = buffer.getChannelData(0);
+    for(let i=0;i<size;i++) ch[i] = (Math.random()*2-1) * Math.exp(-4*i/size);
+    const src = audioCtx.createBufferSource();
+    src.buffer = buffer; const g = audioCtx.createGain();
+    g.gain.setValueAtTime(0.6, now); g.gain.exponentialRampToValueAtTime(0.001, now+0.4);
+    src.connect(g); g.connect(audioCtx.destination); src.start(now);
+  }
+
+  // start rainbow banner (6s) shown when play begins
+  function showStartBanner(){
+    // fill rainbow spans
+    rainbowBanner.innerHTML = '';
+    const text = "KIEU TUAN HUNG DZ SO 1 THE GIOI CHUC BAN CHOI GAME VUI VE";
+    for(let i=0;i<text.length;i++){
+      const s = document.createElement('span'); s.textContent = text[i];
+      s.style.color = `hsl(${ (i*30)%360 },100%,50%)`; rainbowBanner.appendChild(s);
+    }
+    rainbowBanner.style.left = (W + 20) + 'px';
+    rainbowBanner.style.transition = 'none';
+    rainbowBanner.style.display = 'block';
+    // force reflow to restart transition
+    void rainbowBanner.offsetWidth;
+    rainbowBanner.style.transition = 'transform 6s linear, left 6s linear';
+    rainbowBanner.style.transform = `translateX(${-(W + rainbowBanner.offsetWidth + 40)}px)`;
+    // hide after ~6s
+    setTimeout(()=>{ rainbowBanner.style.display='none'; rainbowBanner.style.transform='none'; }, 6000);
+  }
+
+  // show big floating level text
+  function showLevelText(){
+    floatingText.style.opacity = 1; floatingText.style.bottom = '-60px';
+    floatingText.style.transition = 'bottom 1.6s ease-out, opacity 1.6s';
+    // move up
+    setTimeout(()=>{ floatingText.style.bottom = `${H/2 - 40}px`; }, 10);
+    setTimeout(()=>{ floatingText.style.opacity = 0; }, 1600);
+  }
+
+  // start/stop music - ensure immediate loop from head
+  function startMusic(){
+    try{
+      if(audioCtx && audioCtx.state === 'suspended') audioCtx.resume();
+    }catch(e){}
+    if(bgMusic){
+      bgMusic.pause();
+      bgMusic.currentTime = 0;
+      bgMusic.loop = true;
+      bgMusic.play().catch(()=>{/* blocked until user gesture */});
+    }
+  }
+  function stopMusic(){ if(bgMusic){ bgMusic.pause(); bgMusic.currentTime = 0; } }
+
+  // flap / input
+  function flap(){
+    if(gameOver) return;
+    bird.velocity = bird.jump;
+    if(!playing){
+      playing = true;
+      startScreen.style.display = 'none';
+      startMusic();
+      showStartBanner();
+    }
+  }
+
+  // event wiring
+  window.addEventListener('keydown', e => { if(e.code === 'Space'){ e.preventDefault(); flap(); } if(e.key === 'r' && gameOver) reset(); });
+  canvas.addEventListener('mousedown', () => { flap(); });
+  btnPlay.addEventListener('click', () => { flap(); });
+  restartBtn.addEventListener('click', () => { reset(); startMusic(); });
+
+  // update / game loop
+  function update(){
+    frames++;
+    // background moves even if not playing for visual
+    bambooList.forEach(b => { b.x -= b.speed*0.4; if(b.x < -80) b.x = W + Math.random()*60; });
+    cloudList.forEach(c => { c.x -= c.speed; if(c.x < -c.size*1.2) c.x = W + c.size; });
+
+    if(!playing || gameOver){
+      updateFireworks();
+      return;
+    }
+
+    // bird physics
+    bird.velocity += bird.gravity; bird.y += bird.velocity; bird.rotation = Math.max(Math.min(bird.velocity/10,0.8), -1);
+
+    // pipes
+    for(const p of pipes){
+      p.x -= PIPE_SPEED;
+      if(p.x + PIPE_W < -40){
+        const maxX = Math.max(...pipes.map(q=>q.x));
+        Object.assign(p, spawnPipe(maxX + PIPE_DIST));
+        p.x = maxX + PIPE_DIST; p.passed = false;
+      }
+      if(!p.passed && p.x + PIPE_W < bird.x){
+        p.passed = true; score++; passedPipes++;
+        if(passedPipes % 5 === 0){
+          level = Math.floor(passedPipes/5) + 1;
+          updateHUD();
+          // celebration
+          for(let i=0;i<6;i++) spawnFirework(60 + i*(W-120)/5, 120 + Math.random()*80);
+          showCelebration = true; celebrationTimer = 0;
+          showLevelText(); playLevelSound(); playFireworkBoom();
+        } else {
+          updateHUD();
+        }
+      }
+      if(circleRect(bird.x, bird.y, bird.radius, p.x, p.top, PIPE_W, H) ||
+         circleRect(bird.x, bird.y, bird.radius, p.x, p.bottom, PIPE_W, H)){
+        endGame();
+      }
+    }
+
+    // ground
+    if(bird.y + bird.radius > H - 40){ bird.y = H - 40 - bird.radius; endGame(); }
+    if(bird.y - bird.radius < 0){ bird.y = bird.radius; bird.velocity = 0; }
+
+    // fireworks update
+    if(showCelebration){
+      celebrationTimer++;
+      if(frames % 8 === 0) spawnFirework(Math.random()*(W-120) + 60, Math.random()*(H/2 - 120) + 120);
+      updateFireworks();
+      if(celebrationTimer > CELEBRATION_DURATION){ showCelebration = false; celebrationTimer = 0; fireworks = []; }
+    }
+  }
+
+  function endGame(){
+    gameOver = true; playing = false; stopMusic();
+    const hsKey = 'flappy_kieu_tuan_hung_highscore';
+    let highscore = parseInt(localStorage.getItem(hsKey) || 0, 10);
+    if(score > highscore){ localStorage.setItem(hsKey, score); highscore = score; }
+    finalScore.textContent = `Điểm: ${score} | Điểm cao nhất: ${highscore}`;
+    go.classList.add('visible');
+  }
+
+  function draw(){
+    // background
+    ctx.clearRect(0,0,W,H);
+    const g = ctx.createLinearGradient(0,0,0,H); g.addColorStop(0,'#70c5ce'); g.addColorStop(1,'#9be3e0');
+    ctx.fillStyle = g; ctx.fillRect(0,0,W,H);
+
+    // clouds (far)
+    ctx.save();
+    ctx.globalAlpha = 0.9;
+    cloudList.forEach(c => {
+      ctx.beginPath();
+      ctx.ellipse(c.x, c.y, c.size*0.6, c.size*0.4, 0, 0, Math.PI*2);
+      ctx.ellipse(c.x + c.size*0.5, c.y - c.size*0.2, c.size*0.5, c.size*0.35, 0,0,Math.PI*2);
+      ctx.fillStyle = 'rgba(255,255,255,0.95)'; ctx.fill();
+    });
+    ctx.restore();
+
+    // pipes (as bamboo-like)
+    for(const p of pipes){
+      // top
+      drawPipe(p.x, 0, PIPE_W, p.top + H, true);
+      // bottom
+      drawPipe(p.x, p.bottom, PIPE_W, H - p.bottom, false);
+    }
+
+    // ground
+    ctx.fillStyle = 'rgba(222,216,149,0.95)'; ctx.fillRect(0, H - 40, W, 40);
+
+    // fireworks behind bird
+    for(const f of fireworks){
+      const alpha = 1 - (f.age / f.life);
+      ctx.beginPath(); ctx.fillStyle = `hsla(${f.hue},90%,60%,${alpha})`; ctx.arc(f.x, f.y, f.r, 0, Math.PI*2); ctx.fill();
+    }
+
+    // bird
+    ctx.save();
+    ctx.translate(bird.x, bird.y);
+    ctx.rotate(bird.rotation);
+    ctx.beginPath(); ctx.fillStyle = '#ffdd57'; ctx.arc(0,0,bird.radius,0,Math.PI*2); ctx.fill();
+    ctx.beginPath(); ctx.fillStyle = '#333'; ctx.arc(5,-4,3,0,Math.PI*2); ctx.fill();
+    ctx.beginPath(); ctx.fillStyle = '#f1b500'; ctx.ellipse(-3,6,8,4,0,0,Math.PI*2); ctx.fill();
+    ctx.restore();
+  }
+
+  function drawPipe(x,y,w,h,isTop){
+    // bamboo-style pipe
+    ctx.fillStyle = '#2e8b57'; ctx.fillRect(x,y,w,h);
+    ctx.fillStyle = '#256242'; ctx.fillRect(x-6, y + (isTop ? h-18 : 0), w+12, 18);
+    ctx.fillStyle = 'rgba(0,0,0,0.06)';
+    for(let i=0;i<Math.max(3, Math.floor(h/20)); i++){
+      ctx.fillRect(x+6 + i*10, y + (isTop ? h-18 : 8), 2, 8);
+    }
+  }
+
+  function loop(){
+    update(); draw(); requestAnimationFrame(loop);
+  }
+
+  // initialization
+  function reset(){
+    frames = 0; pipes = []; score = 0; passedPipes = 0; level = 1;
+    gameOver = false; playing = false; fireworks = []; showCelebration = false; celebrationTimer = 0;
+    for(let i=0;i<4;i++) pipes.push(spawnPipe(W + i*PIPE_DIST + 60));
+    initBamboo(); initClouds();
+    updateHUD(); go.classList.remove('visible'); startScreen.style.display = 'flex';
+  }
+
+  // init lists and start
+  initBamboo(); initClouds(); reset(); loop();
+
+  // expose some helpers (optional)
+  window.__game = { reset };
+
+})();
+</script>
+</body>
+</html>
